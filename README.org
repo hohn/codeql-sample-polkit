@@ -1,0 +1,325 @@
+# -*- coding: utf-8 -*-
+* The polkit pkexec bug
+
+  The Polkit pkexec bug [[https://blog.qualys.com/vulnerabilities-threat-research/2022/01/25/pwnkit-local-privilege-escalation-vulnerability-discovered-in-polkits-pkexec-cve-2021-4034][(CVE-2021-4034)]]
+  starts from an array bounds error w.r.t. argv and
+  builds on that.  The out-of-bounds part of the problem is something we
+  can look at with the codeql range analysis library.
+
+  pkexec’s main() function in polkit/src/programs/pkexec.c has the structure
+  #+begin_src text
+    435 main (int argc, char *argv[])
+    436 {
+    ...
+    534   for (n = 1; n < (guint) argc; n++)
+    535     {
+    ...
+    568     }
+    ...
+    610   path = g_strdup (argv[n]);
+    ...
+  #+end_src
+
+  Main ideas:
+   - Use simple range analysis on argc.
+   - Limit rhs / lhs of expressions to those involving argc.
+
+  Versions to check:
+  - All Polkit versions from 2009 onwards are vulnerable; first version in May
+    2009 (commit c8c3d83, “Add a pkexec(1) command”).
+  - we can get /a/ database [[https://lgtm.com/projects/g/freedesktop/polkit/ci/#ql][from lgtm]], the current one <2022-02-11 Fri> is 
+    =...srcVersion_a6bedfd...=
+    but this one is already past the polkit patch:
+    #+BEGIN_SRC text
+      commit a6bedfd09b7bba753de7a107dc471da0db801858 (origin/master, origin/HEAD, master)
+      Author: Xi Ruoyao <xry111@mengyan1223.wang>
+      Date:   Thu Jan 27 10:16:32 2022 +0000
+
+          jsauthority: port to mozjs-91
+
+      commit a2bf5c9c83b6ae46cbd5c779d3055bff81ded683
+      Author: Jan Rybar <jrybar@redhat.com>
+      Date:   Tue Jan 25 17:21:46 2022 +0000
+
+          pkexec: local privilege escalation (CVE-2021-4034)
+    #+END_SRC
+    And we can see that the problem is fixed:
+    #+BEGIN_SRC text
+      commit a2bf5c9c83b6ae46cbd5c779d3055bff81ded683
+      Author: Jan Rybar <jrybar@redhat.com>
+      Date:   Tue Jan 25 17:21:46 2022 +0000
+
+          pkexec: local privilege escalation (CVE-2021-4034)
+
+      diff --git a/src/programs/pkcheck.c b/src/programs/pkcheck.c
+      index f1bb4e1..768525c 100644
+      --- a/src/programs/pkcheck.c
+      +++ b/src/programs/pkcheck.c
+      @@ -363,6 +363,11 @@ main (int argc, char *argv[])
+         local_agent_handle = NULL;
+         ret = 126;
+ 
+      +  if (argc < 1)
+      +    {
+      +      exit(126);
+      +    }
+      +
+         /* Disable remote file access from GIO. */
+         setenv ("GIO_USE_VFS", "local", 1);
+    #+END_SRC
+  - So we need the [[https://gitlab.freedesktop.org/polkit/polkit.git][source code]] and build our own databases, one pre-patch, one post.
+
+  The next section goes through the build steps, using a Docker container.
+
+** Build polkit and codeql db
+   We need the build setup for polkit before we can get a codeql database.  
+
+   Operating system options for building:
+   - macOS is worth a try, but this becomes tricky early on.  Using =brew= to get
+     dependencies works to a point, but the =mozjs-78= dependency is a specific
+     version of spidermonkey and building /that/ is not practical.
+       #+BEGIN_SRC sh
+         # autoconf... a little tricky on a mac
+         brew install autoconf automake libtool gtk-doc
+         export PATH="/usr/local/opt/libtool/libexec/gnubin:$PATH"
+         ./autogen.sh 
+
+         # Use meson?
+         brew install meson ninja intltool glib gobject-introspection 
+       #+END_SRC
+   - Linux is the native environment for polkit, but which one?  The mozjs-78
+     dependency is a specific version of spidermonkey; also, polkit it not used by
+     all distributions:
+     - Debian uses PolicyKit, not polkit.  
+     - Ubuntu:
+       - 18.04 is also missing mozjs78 (only mozjs52)
+       - 22.04 has mozjs78
+
+   Ubuntu 22.04 can be run in a number of ways, on hardware, a VM (vmware,
+   virtualbox, multipass, etc.), or a docker
+   container on another host.  For this problem, we can use a Docker container and
+   include the codeql command-line tools as well.
+
+   The definition of the container is in the ./Dockerfiles, here is the build
+   sequence:
+   #+BEGIN_SRC shell
+     # Base image for setting up the qlbuild container
+     docker pull ubuntu:jammy
+     docker images
+     docker run --cpus 4 -m 8GB -ti ubuntu:jammy
+
+     # To-be-customized image
+     docker build -t qlbuild .
+
+   #+END_SRC
+   Note: when using docker desktop on windows and mac, memory and cpu limits must
+   be raised there.  Once set, the container running sequence is simply
+   #+BEGIN_SRC sh
+     # Run as daemon so it stays around even when disconnecting. 
+     docker run -d -p 127.0.0.1:2020:22 --cpus 8 -m 16GB qlbuild
+
+     # And connect
+     ssh -p 2020 test@localhost
+   #+END_SRC
+
+   Building on Ubuntu 22.04
+   #+BEGIN_SRC sh
+     # ---------------------------------
+     # System setup/install, as root:
+     echo "deb-src http://archive.ubuntu.com/ubuntu/ jammy main restricted" >> /etc/apt/sources.list
+     apt-get update
+     apt-get install -y zile build-essential git cmake \
+             meson ninja-build \
+             libmozjs-78-0 libmozjs-78-dev \
+             libdbus-1-3 libdbus-1-dev
+     apt-get build-dep -y  policykit-1
+     apt install unzip
+
+     # polkit version a2bf5c9c also needs some extras
+     apt install duktape duktape-dev
+     # older meson into /usr/local/bin
+     pip3 install meson==0.60.3
+     # Or get the source and use that:
+     #     wget https://github.com/mesonbuild/meson/archive/refs/tags/0.60.3.tar.gz
+     #     tar zxf 0.60.3.tar.gz
+     #     etc.
+
+     # ---------------------------------
+     # codeql setup -- still root
+
+     # grab -- retrieve and extract codeql cli and library
+     # Usage: grab version url prefix
+     grab() {
+         version=$1; shift
+         platform=$1; shift
+         prefix=$1; shift
+         mkdir -p $prefix/codeql-$version &&
+             cd $prefix/codeql-$version || return
+
+         # Get cli
+         wget "https://github.com/github/codeql-cli-binaries/releases/download/$version/codeql-$platform.zip"
+         # Get lib
+         wget "https://github.com/github/codeql/archive/refs/tags/codeql-cli/$version.zip"
+         # Fix attributes
+         if [ `uname` = Darwin ] ; then
+             xattr -c *.zip
+         fi
+         # Extract
+         unzip -q codeql-$platform.zip
+         unzip -q $version.zip
+         # Rename library directory for VS Code
+         mv codeql-codeql-cli-$version/ ql
+         # Remove archives
+         rm codeql-$platform.zip
+         rm $version.zip
+     }    
+
+     grab v2.7.6 linux64 /opt
+     grab v2.6.3 linux64 /opt
+
+     # ---------------------------------
+     # As user test:
+     # Get polkit source
+     cd /tmp && git clone https://gitlab.freedesktop.org/polkit/polkit.git
+
+     # Build version 0.119
+     cd /tmp/polkit
+     git checkout 0.119 
+     git clean -fxd
+
+     meson setup builddir
+     meson compile -C builddir
+
+     find builddir -name pkexec -ls
+     : 139269     76 -rwxr-xr-x   1 test     root        76696 Feb 12 03:06 builddir/src/programs/pkexec
+
+     # ---------------------------------
+     # Build codeql database for version 0.119 
+     cd /tmp/polkit
+     git checkout 0.119 
+     git clean -fxd
+
+     # Run the configuration step as usual, without codeql
+     cd /tmp/polkit && rm -fR builddir
+     meson setup builddir
+
+     # Run the build step under codeql
+     export CODEQL=/opt/codeql-v2.7.6/codeql/codeql
+     $CODEQL --version
+
+     $CODEQL database create  --language=cpp -s . -j 8 -v \
+             polkit-0.119.db \
+             --command='meson compile -C builddir'
+
+     # Wait for 
+     # TRAP import complete (10.2s).
+     # Successfully created database at /tmp/polkit/polkit-0.119.db.
+
+     # And a quick check to make sure pkexec was seen:
+     unzip -v polkit-0.119.db/src.zip |grep pkexec
+     : 29713  Defl:N     8477  72% 2022-02-14 20:12 bb39f235  tmp/polkit/src/programs/pkexec.c
+
+     # ---------------------------------
+     # Build codeql database for version a2bf5c9c, the patched version (and still using
+     # mozjs-78)
+     cd /tmp/polkit
+     git checkout a2bf5c9c 
+     git clean -fxd
+
+     # Run the configuration step as usual, without codeql
+     cd /tmp/polkit && rm -fR builddir
+     /usr/local/bin/meson setup builddir
+
+     # With meson 0.61, configuration runs into the error
+     #   actions/meson.build:3:5: ERROR: Function does not take positional arguments.
+     # quick search leads to 
+     #   https://lore.kernel.org/all/20220111222135.693a88f2@windsurf/T/
+     # and from there to
+     #   [1/1] package/gobject-introspection: bump to version 1.70.0
+
+     # Run the build step under codeql
+     export CODEQL=/opt/codeql-v2.7.6/codeql/codeql
+     $CODEQL --version
+
+     $CODEQL database create  --language=cpp -s . -j 8 -v \
+             polkit-a2bf5c9c.db \
+             --command='/usr/local/bin/meson compile -C builddir'
+
+     # Wait for 
+     # TRAP import complete (7.2s).
+     # Successfully created database at /tmp/polkit/polkit-a2bf5c9c.db.
+
+     # And a quick check to make sure pkexec was seen:
+     unzip -v polkit-a2bf5c9c.db/src.zip |grep pkexec
+     :   30136  Defl:N     8647  71% 2022-02-14 21:27 6af18604  tmp/polkit/src/programs/pkexec.c
+
+   #+END_SRC
+
+   Copy the db to a permanent place on the host
+   #+BEGIN_SRC sh
+     # Copy from the container
+     mkdir -p ~/local/polkit && cd ~/local/polkit 
+     scp -rq -P 2020  test@localhost:/tmp/polkit/polkit-0.119.db .
+     scp -rq -P 2020  test@localhost:/tmp/polkit/polkit-a2bf5c9c.db .
+
+     # Keep originals
+     zip -rq polkit-0.119.zip polkit-0.119.db 
+     zip -rq polkit-a2bf5c9c.zip polkit-a2bf5c9c.db
+   #+END_SRC
+
+   # TODO
+   # Push container for reuse, see [[https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#pushing-container-images][documentation]]
+   # #+BEGIN_SRC sh
+   #   docker login ghcr.io -u USERNAME
+
+   #   docker push ghcr.io/OWNER/IMAGE_NAME:latest
+
+   #   docker pull ghcr.io/OWNER/IMAGE_NAME
+   # #+END_SRC
+
+   Next up, setting up for query development.
+
+** Query development setup
+  Queries can be explored via codeql cli by itself, or using the codeql cli + the
+  VS Code plugin.  For both cases, install the cli (see the =grab()= function
+  above) and download or build the codeql databases.
+
+  In the following, we assume this directory strucuture for the databases:
+  #+BEGIN_SRC text
+    cd ~/local/polkit
+    tree -L 2 -n 
+    .
+    ├── polkit-0.119.db
+    │   ├── codeql-database.yml
+    │   ├── db-cpp
+    │   ├── log
+    │   └── src.zip
+    ├── polkit-0.119.zip
+    ├── polkit-a2bf5c9c.db
+    │   ├── codeql-database.yml
+    │   ├── db-cpp
+    │   ├── log
+    │   └── src.zip
+    └── polkit-a2bf5c9c.zip
+  #+END_SRC
+
+
+** The query 
+   (WIP) The query is developed in [[./argv-out-of-bounds.ql]]
+
+# TODO
+# ** Running the query from the command line
+#    #+BEGIN_SRC sh
+#      # Run a query against the database, saving the results to the results/
+#      # subdirectory of the database directory for further processing.
+#      codeql database run-queries -j8 --ram=20000 -- $DB $SRCDIR/example.ql
+
+#      # Get general info about available results
+#      codeql bqrs info --format=text -- $DB/results/cpp-sample/example.bqrs 
+
+#      # Format results using bqrs decode. 
+#      codeql bqrs decode --output=cpp-simple.csv                              \
+#             --format=csv --entities=all --                                   \
+#             $DB/results/cpp-sample/example.bqrs 
+#    #+END_SRC
+
