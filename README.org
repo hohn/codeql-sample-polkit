@@ -288,12 +288,11 @@
 ** Query development setup
   Queries can be explored via codeql cli by itself, or using the codeql cli + the
   VS Code plugin.  For both cases, install the cli (see the =grab()= function
-  above) and download or build the codeql databases.
+  above), and extract the databases from [[./db]] or build them 
+  as done in in [[*Build polkit and codeql db][Build polkit and codeql db]]
 
   In the following, we assume this directory structure for the databases:
   #+BEGIN_SRC text
-    cd ~/local/polkit
-    tree -L 2 -n 
     .
     ├── polkit-0.119.db
     │   ├── codeql-database.yml
