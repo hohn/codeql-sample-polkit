@@ -310,7 +310,34 @@
 
 
 ** The query 
-   (WIP) The query is developed in [[./argv-out-of-bounds.ql]]
+   The query is developed incrementally in [[./argv-out-of-bounds-*.ql]]. 
+
+   The first steps in [[./argv-out-of-bounds-0.ql]] use the AST and variable
+   references to narrow results to the known parts of the problem, as in the
+   following.
+
+   #+BEGIN_SRC text
+     declaration      | 435 main (int argc, char *argv[])
+                      | 436 {
+                      | ...
+     init other var;  | 534   for (n = 1;
+     compare to argc  |            n < (guint) argc;
+     update other var |            n++)
+                      | 535     {
+                      | ...
+                      | 568     }
+                      | ...
+     indexed read     | 610   path = g_strdup (argv[n]);
+                      | ...
+                      | 629   if (path[0] != '/')
+                      | 630     {
+                      | ...
+                      | 632       s = g_find_program_in_path (path);
+                      | ...
+     indexed write    | 639       argv[n] = path = s;
+                      | 640     }
+   #+END_SRC
+
 
 # TODO
 # ** Running the query from the command line
