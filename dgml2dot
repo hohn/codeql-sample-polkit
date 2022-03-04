@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+#
+# Read dgml from stdin, write dot to stdout
+# 
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+# Read source
+xml = sys.stdin.read()
+root = ET.fromstring(xml)
+
+# Form dot element sequence
+body_l = ["digraph qlast {",
+          "node [shape=box];",
+]
+
+for node in root.find("{http://schemas.microsoft.com/vs/2009/dgml}Nodes"):
+    att = node.attrib
+    keys = set(att.keys()) - set(['Id', 'Label'])
+    prop_l = ['{}="{}"'.format(key, att[key]) for key in keys]
+    prop_l.append('{}="{}"'.format("label", att["Label"]))
+    node_s = "nd_{} [{}];".format(att['Id'], ", ".join(prop_l))
+    body_l.append(node_s)
+
+for edge in root.find("{http://schemas.microsoft.com/vs/2009/dgml}Links"):
+    att = edge.attrib
+    edge_s = 'nd_{} -> nd_{} [label="{}"];'.format(
+        att["Source"], att["Target"], att.get("Label", ""))
+    body_l.append(edge_s)
+
+body_l.append("}")
+
+# Write dot 
+sys.stdout.write("\n".join(body_l))
