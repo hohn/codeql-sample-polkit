@@ -1,6 +1,4 @@
+# This format is valid for codeql cli v2.7.6, but changes sometime after.
 name: cpp-polkit-argv
 version: 0.0.1
-dependencies:
-  # This uses the latest version of the codeql/cpp-all library.
-  # You may want to change to a more precise semver string.
-  codeql/cpp-all: "*"
+libraryPathDependencies: codeql-cpp
