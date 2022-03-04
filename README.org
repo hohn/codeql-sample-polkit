@@ -338,8 +338,8 @@
                       | 640     }
    #+END_SRC
 
-   Further exploration is done in [[./argv-out-of-bounds-1.ql]], starting with an
-   attempt at using the =SimpleRangeAnalysis= library
+   Exploration of values starts in [[./argv-out-of-bounds-1.ql]] with an attempt at
+   using the =SimpleRangeAnalysis= library via
    #+begin_src javascript
        lowerBound(cmp.getLeftOperand().getFullyConverted()),  "left lower bound",
        lowerBound(cmp.getRightOperand().getFullyConverted()), "right lower bound"
@@ -350,9 +350,18 @@
 
    Put another way, this is not a general data flow problem; we only want to check
    initial value propagation along certain execution paths.  The =for= loop
-   complicates this, as do the operations within it.  We really want to see
-   execution paths that bypass the loop altogether.  That is done in the latter
-   parts of [[./argv-out-of-bounds-1.ql]], using a =SsaDefinition=.
+   complicates this, as do the operations within it. 
+
+   We really want to see execution paths that bypass the loop altogether.  That is
+   done in the latter parts of [[./argv-out-of-bounds-1.ql]], using a =SsaDefinition=.
+
+   The query [[./argv-out-of-bounds-2.ql]] cleans up the exploration from
+   [[./argv-out-of-bounds-1.ql]] and correctly identifies all the locations using =n=
+   with a known index value =n > 0=.
+
+   This query reports results on the vulnerable version of the code,
+   =polkit-0.119.db=.  Next, it needs to be checked and enhanced so it reports
+   nothing on the patched version, =polkit-a2bf5c9c.db=.
 
 # TODO
 # ** Running the query from the command line

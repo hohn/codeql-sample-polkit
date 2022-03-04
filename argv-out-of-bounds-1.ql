@@ -85,7 +85,7 @@ from
   //      Find an execution path (if any), using statically known values, that reaches
   //      an argv assignment with invalid index.
   //
-  //      To track only values of the argv index that are too low, we need to stay on
+  //      To track only values of the argv index that are too high, we need to stay on
   //      certain branches of the CFG, namely those matching a SSA defition of the
   //      index variable.
   //
