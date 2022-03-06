@@ -5,6 +5,19 @@
 import re
 import sys
 import xml.etree.ElementTree as ET
+import argparse
+
+parser = argparse.ArgumentParser(description='Read a dgml file and produce dot output.')
+parser.add_argument('-m', '--merge-with', metavar='mergefile', type=str,
+                    help='Color nodes found in main and mergefile to distinguish them')
+args = parser.parse_args()
+
+mergenodes = set()
+if args.merge_with:
+    # Form a set of Node Ids to check Node presence later
+    mergetree = ET.fromstring(open(args.merge_with, 'rb').read())
+    for node in mergetree.find("{http://schemas.microsoft.com/vs/2009/dgml}Nodes"):
+        mergenodes.add(node.attrib['Id'])
 
 # Read source
 xml = sys.stdin.read()
@@ -20,7 +33,10 @@ for node in root.find("{http://schemas.microsoft.com/vs/2009/dgml}Nodes"):
     keys = set(att.keys()) - set(['Id', 'Label'])
     prop_l = ['{}="{}"'.format(key, att[key]) for key in keys]
     prop_l.append('{}="{}"'.format("label", att["Label"]))
-    node_s = "nd_{} [{}];".format(att['Id'], ", ".join(prop_l))
+    node_id = att['Id']
+    if node_id in mergenodes:
+        prop_l.append('color=green')
+    node_s = "nd_{} [{}];".format(node_id, ", ".join(prop_l))
     body_l.append(node_s)
 
 for edge in root.find("{http://schemas.microsoft.com/vs/2009/dgml}Links"):
