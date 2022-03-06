@@ -16,19 +16,21 @@ codeql database analyze                                 \
        --format=dgml                                    \
        --output=PrintCFG.dgml
 
+PRE=PrintCFG.dgml/cpp/example/polkit/cfg
+
 # Clean up the dgml (xml) output
-tidy -xml PrintCFG.dgml/cpp/example/polkit/cfg.dgml | sponge PrintCFG.dgml/cpp/example/polkit/cfg.dgml
+tidy -xml $PRE.dgml | sponge $PRE.dgml
 
 # Convert dgml to dot
-./dgml2dot < PrintCFG.dgml/cpp/example/polkit/cfg.dgml > cfg.dot
+./dgml2dot < $PRE.dgml > $PRE.dot
 
-# Produce the DAG we really want
-dot -Tpdf < cfg.dot > cfg.pdf
-open cfg.pdf
+# Produce the layed-out DAG
+dot -Tpdf < $PRE.dot > $PRE.pdf &
+open $PRE.pdf
 
 # Faster than dot, as sanity check:
-sfdp -Tpdf < cfg.dot > cfg.sfdp.pdf
-open cfg.sfdp.pdf
+sfdp -Tpdf < $PRE.dot > $PRE.sfdp.pdf
+open $PRE.sfdp.pdf
 
 #* Full dot graph from codeql
 # 
