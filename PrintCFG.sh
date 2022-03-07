@@ -25,7 +25,12 @@ tidy -xml $PRE.dgml | sponge $PRE.dgml
 ./dgml2dot < $PRE.dgml > $PRE.dot
 
 # Produce the layed-out DAG
+# Render -- slow steps:
+dot -Tsvg < $PRE.dot > $PRE.svg &
 dot -Tpdf < $PRE.dot > $PRE.pdf &
+
+# View
+open -a safari $PRE.svg
 open $PRE.pdf
 
 # Faster than dot, as sanity check:
