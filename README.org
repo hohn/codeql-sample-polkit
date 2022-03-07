@@ -1,12 +1,23 @@
 # -*- coding: utf-8 -*-
 * The polkit pkexec bug
 
-  This is *work in progress*:
-  - [X] the polkit source / database build are complete
-  - [ ] codeql query development
-  - [ ] command-line instructions
-    
+** Overview
+   This repository examines the polkit pkexec bug using CodeQL.
+   It has
+   - instructions for building the databases
+   - the resultant databases
+   - a sequence of queries illustrating an approach to find this bug
 
+   These are done:
+   - [X] the polkit source / database build
+   - [X] codeql query for vulnerable source
+   - [X] CFG illustration
+
+   Still to be done:
+   - [ ] codeql query enhancements to also handle patched source
+   - [ ] command-line instructions
+
+** The Bug
   The Polkit pkexec bug [[https://blog.qualys.com/vulnerabilities-threat-research/2022/01/25/pwnkit-local-privilege-escalation-vulnerability-discovered-in-polkits-pkexec-cve-2021-4034][(CVE-2021-4034)]]
   starts from an array bounds error w.r.t. argv and
   builds on that.  The out-of-bounds part of the problem is something we
@@ -77,7 +88,7 @@
 
   The next section goes through the build steps, using a Docker container.
 
-** Build polkit and codeql db
+** Build polkit and CodeQL DB
    We need the build setup for polkit before we can get a codeql database.  
 
    Operating system options for building:
